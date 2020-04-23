@@ -4,6 +4,8 @@ import json
 import re
 from backend_tools.aws.s3 import S3Interface
 from boto3.dynamodb.conditions import Key
+from backend_tools.pose.conversions import convert_legacy_pose_sequence
+from backend_tools.pose.post_processing import PosePostProcessor
 
 # set location of credentials file
 os.environ["AWS_CONFIG_FILE"] = "./aws_config.ini"
@@ -13,7 +15,7 @@ OUTPUT_DIR = './data/'
 DIRECTORY = OUTPUT_DIR
 BUCKET = 'smartcoach'
 REGION = 'us-east-2'
-MAX_DOWNLOAD_COUNT = 5000
+MAX_DOWNLOAD_COUNT = 10
 FILE_TYPE = ".json"
 TABLE_NAME = 'dev-ai-basketball-throw-videos'
 
@@ -70,8 +72,28 @@ def download_dir():
                     # only download s3 .json files if score exists in dynamoDB
                     print('downloading item', item['Key'])
                     interface.download_object(BUCKET, item['Key'], OUTPUT_DIR + dirname + '/' + file_name)
-                except:
-                    print('No .json file available for ' + file_name)
+
+                    # re load the json, post-process and re-save it
+                    # load the hpe data
+                    with open(OUTPUT_DIR + dirname + '/' + file_name, 'rb') as f:
+                        data = json.load(f)
+
+                    # remove old file
+                    os.remove(OUTPUT_DIR + dirname + '/' + file_name)
+
+                    # convert to compatible pose sequence
+                    pose_seq = convert_legacy_pose_sequence(data)
+
+                    # post process the poses to improve robustness
+                    post_processor = PosePostProcessor()
+                    post_processed = post_processor(pose_seq, use_numpy=False)
+
+                    # dump the data back to json
+                    with open(OUTPUT_DIR + dirname + '/' + file_name, 'w+') as f:
+                        json.dump(post_processed, f)
+
+                except Exception as e:
+                    print(e)
 
                 download_count += 1
 
