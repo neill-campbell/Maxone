@@ -3,20 +3,21 @@ import boto3
 import json
 import re
 from backend_tools.aws.s3 import S3Interface
-from backend_tools.aws.dynamo import DynamoInterface
 from boto3.dynamodb.conditions import Key
 
 # set location of credentials file
 os.environ["AWS_CONFIG_FILE"] = "./aws_config.ini"
 
 # globals
-OUTPUT_DIR = '/home/kebin/MaxoneData/Test/SmartcoachTest/assessment/'
+OUTPUT_DIR = './data/'
 DIRECTORY = OUTPUT_DIR
 BUCKET = 'smartcoach'
 REGION = 'us-east-2'
-MAX_DOWNLOAD_COUNT = 500
+MAX_DOWNLOAD_COUNT = 5000
 FILE_TYPE = ".json"
 TABLE_NAME = 'dev-ai-basketball-throw-videos'
+
+# interfaces
 dynamodb = boto3.resource('dynamodb', 'us-east-1')
 interface = S3Interface(REGION)
 
@@ -44,12 +45,9 @@ def download_dir():
     download_count = 0
     while continuation_token is not None:
         for item in results:
+
             if FILE_TYPE in item['Key']:
                 base, dirname, file_name = item['Key'].split('/')
-                try:
-                    os.mkdir(OUTPUT_DIR + dirname)
-                except:
-                    print('Dir exists')
 
                 # get hpe score information from dynamoDB
                 try:
@@ -58,6 +56,14 @@ def download_dir():
                         IndexName='hpe-index',
                         KeyConditionExpression=Key('hpe').eq(item['Key'])
                     )
+
+                    # make the directory
+                    try:
+                        os.mkdir(OUTPUT_DIR + dirname)
+                    except:
+                        print('Dir exists')
+
+                    # save
                     save_grab = json.dumps(dynamo_grab["Items"][0]["score"])
                     score_parse(file_name, save_grab, dirname)
 
@@ -66,13 +72,17 @@ def download_dir():
                     interface.download_object(BUCKET, item['Key'], OUTPUT_DIR + dirname + '/' + file_name)
                 except:
                     print('No .json file available for ' + file_name)
+
                 download_count += 1
+
+            # break when we have hit our download limit
             if download_count > MAX_DOWNLOAD_COUNT:
                 print('Max download cap reached')
                 exit(0)
+
         # get next round of items
         continuation_token, results = interface.list_objects(BUCKET, continuation_token)
 
 
-download_dir()
-
+if __name__ == "__main__":
+    download_dir()
